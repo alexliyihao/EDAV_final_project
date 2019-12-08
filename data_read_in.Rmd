@@ -1,0 +1,29 @@
+---
+title: "Final_Project_data_read"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(rgeos)
+library(geojsonio)
+```
+
+```{r}
+df = read_csv('cleaned_nyc_data.csv')
+nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
+nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
+
+nycmap <- ggplot() + geom_map(data=nyc_districts_map, 
+                          map=nyc_districts_map,
+                          aes(x=long, y=lat, map_id=id),
+                          color="black", 
+                          size=0.15, 
+                          fill=NA) + 
+  coord_map() +
+  ggthemes::theme_map()
+```
