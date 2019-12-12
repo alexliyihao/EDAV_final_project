@@ -1,29 +1,106 @@
 ---
 title: "Final_Project_data_read"
-output: html_document
+output: 
+  html_document:
+    code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
 library(tidyverse)
 library(rgeos)
 library(geojsonio)
+library(extracat)
 ```
 
+Download the geojson map of NYC from service5.arcgis.com.
+Read geojson map and dataset, which can be used by **ggplot::geom_map** and will be printed as following:
 ```{r}
-df = read_csv('cleaned_nyc_data.csv')
+URL <- "http://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/nycd/FeatureServer/0/query?where=1=1&outFields=*&outSR=4326&f=geojson"
+fil <- "nyc_community_districts.geojson"
+
+if (!file.exists(fil)) download.file(URL, fil)
+
 nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
 nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
-
-nycmap <- ggplot() + geom_map(data=nyc_districts_map, 
-                          map=nyc_districts_map,
-                          aes(x=long, y=lat, map_id=id),
-                          color="black", 
-                          size=0.15, 
-                          fill=NA) + 
+ggplot(data=nyc_districts_map, aes(x=long, y=lat)) +      
+  geom_map(map=nyc_districts_map,
+                        aes(map_id=id),
+                        color="black", 
+                        size=0.15, 
+                        fill=NA) + 
   coord_map() +
   ggthemes::theme_map()
 ```
+
+Read in the data from Airbnb (http://insideairbnb.com/get-the-data.html Ver.Sept.19' "Detailed Listings data for New York City"), we are using **read.csv** not **read_csv** for some reason, it will be mentioned later.
+```{r}
+data = read.csv("listings.csv")
+```
+
+##Data Transformation and cleaning
+
+Airbnb provide a gigantic dataset with a great number of variables  
+For each housing, it provides information from users' url to the amenity tag to the position(longitude and latitude), etc.
+
+####Remove the data not related to our discussion:  
+1. The housing's information (column 1-19):   
+descriptions written by the host, which is considered subjective and does not provide a uniform measure on the house.  
+2. Hosts' information (col 21-39):   
+information about host him/herself:  
+3. Common Position (col 42:48):   
+Our data downloaded are from NYC database, thus the position description greater than Borough doesn't give any useful information.  
+  
+And Other column like this, most of the column removed are  
+1. **Not related** to our discussion  
+2. Give **common information**  
+3. There's a good enough statistic in this field  
+
+```{r}
+data_cleaned = data[-c(1:19,21:39,42:48,51,60,62:63,68:77,82:86,88:98,100,101,103:105)]
+```
+
+####Data cleaning:
+
+**amenities** (The list of amenity string tags) is not converted into a string. for it will be used with a specific API, whose performance is better with factor type.
+
+For all the money value with "$x,xxx.xx" factor format, change it into clean numerical form.
+```{r}
+data_cleaned$price = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$price))))
+data_cleaned$security_deposit = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$security_deposit))))
+data_cleaned$cleaning_fee = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$cleaning_fee))))
+data_cleaned$extra_people = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$extra_people))))
+```
+
+The original dataset is too big (in size it's not, but the strings works horrible with R), we write a lighter version out for further studying. All the following research in on this cleaner dataset.
+```{r}
+write.csv(data_cleaned,'cleaned_nyc_data.csv', row.names=FALSE)
+```
+
+##Missing value and missing pattern
+
+For most of the information we need a factor format, we will use **read.csv** rather than **read_csv** here.
+As an id, **Host_id** should be a factor rather than numeric, but its factor format will be removed once we re-read the csv, we will re-add it manually everytime..
+
+```{r message=FALSE, warning=FALSE}
+df = read.csv('cleaned_nyc_data.csv')
+df$host_id = as.factor(df$host_id)
+visna(df)
+```
+
+Most of the rows are without any missing patterns.
+
+The missing value mainly appear on the following three field:
+The house's hardware: **bathrooms**, **bedrooms**,**beds**, rare
+Pricing: **security_deposit** and **cleaning_fee** very common
+Reviews: The **review_scores_rating** and **reviews_per_month**, common
+
+Common missing patterns:
+Missing all the review related (**review_scores_rating** and **reviews_per_month**): the housing may had no visitors before
+Missing **security_deposit** only: A lot of hosts actually don't give security depo.
+Missing all the pricing related (**security_deposit** and **cleaning_fee**): same idea.
+Missing all the review and pricing related: the intersection of the host mentioned above.
+Thus the missing pattern is relatively following the common sense, there's no too many missing patterns not following the common sense.
