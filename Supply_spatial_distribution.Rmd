@@ -1,0 +1,154 @@
+---
+title: "Final_Project_data_read"
+runtime: shiny
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(rgeos)
+library(geojsonio)
+library(viridis)
+library(dplyr)
+```
+
+Download the geojson map of NYC
+```{r}
+URL <- "http://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/nycd/FeatureServer/0/query?where=1=1&outFields=*&outSR=4326&f=geojson"
+fil <- "nyc_community_districts.geojson"
+
+if (!file.exists(fil)) download.file(URL, fil)
+```
+
+Read geojson map and dataset
+```{r}
+nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
+nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
+df = read_csv('cleaned_nyc_data.csv')
+df$host_url = factor(df$host_url)
+ggplot(data=nyc_districts_map, aes(x=long, y=lat)) +      
+  geom_map(map=nyc_districts_map,
+                        aes(map_id=id),
+                        color="black", 
+                        size=0.15, 
+                        fill=NA) + 
+  coord_map() +
+  ggthemes::theme_map()
+```
+
+###the supply of NYC housing:
+####Spatial aspect
+First, as all of the data analysis on NYC, let's divide the 
+```{r}
+ggplot(df, aes(x = neighbourhood_group_cleansed))+
+  geom_bar()+
+  ggtitle("The Airbnb supply of Sept. 2019")+
+  labs(y = "Supply", x = "Borough")
+```
+
+For a spacial intuition. Plot the hexagon heatmap supply density on the NYC map:
+```{r}
+ggplot(df, aes(x = longitude, y = latitude)) +
+  geom_hex(bins = 100)+
+  scale_fill_viridis()+
+  geom_map(data=nyc_districts_map, 
+            map=nyc_districts_map,
+            aes(x=long, y=lat, map_id=id),
+            color="black", 
+            size=0.15, 
+            fill=NA) + 
+  ggthemes::theme_map()+
+  ggtitle("Airbnb supply density in NYC")
+```
+
+The result follows both the histogram and common sense: Brooklyn and Manhattan provide the most dense supply.
+
+####Host aspect
+
+With calculated_host_listings_count, which is the count of housing provided by this supplier. 
+
+```{r}
+ggplot(df, aes(x = calculated_host_listings_count))+
+  geom_histogram(binwidth = 1)+
+  ggtitle("The Airbnb supply of Sept. 2019")+
+  labs(x = "Supply Amount per host")
+```
+
+To our surprising, the ratio of host who hosts more than 1 housing is not small at all. At least 30% of the host is offering 2 or more.
+```{r}
+quantile(df$calculated_host_listings_count,0.70)
+
+```
+
+There's even some "mega-host" in NYC, check by this!
+```{r echo = FALSE}
+numericInput("large_host_range_min", 
+             "The house of host who hosts more than or equal to:", 
+             20,
+             min = 0, 
+             max = 387)
+```
+```{r, echo = FALSE, Warning = FALSE}
+renderPlot({
+  ggplot(data = df[(df$calculated_host_listings_count >= input$large_host_range_min), 
+                   c("host_url","longitude","latitude")],
+         mapping = aes(x=longitude, 
+                       y=latitude,
+                       color=host_url))+
+    geom_point (size=0.1) +
+    geom_map(data=nyc_districts_map, 
+             map=nyc_districts_map,
+             aes(x=long, y=lat, map_id=id),
+             color="black", 
+             size=0.15, 
+             fill=NA) + 
+    coord_map() +
+    ggthemes::theme_map()+
+    theme(legend.position = "none")+
+    ggtitle(paste("The Airbnb housing distribution from owner with",
+                  as.character(input$large_host_range_min),
+                  "housing(s)"
+                  ,sep = " "))
+  })
+
+```
+
+Let's intuitively have a large host be the one provides greater or equal to 5 housing, who is more likely to be a commercial rather than for-pocket-money one.
+
+```{r}
+df = df %>% as_tibble() %>% mutate(
+  large_host = ifelse(calculated_host_listings_count >= 5, "Large Host","Small Host")
+)
+```
+
+```{r, echo = FALSE}
+numericInput("distribution_min", 
+             "Price range minimum", 
+             300,
+             min = 0, 
+             max = 10000)
+numericInput("distribution_max", 
+             "Price range maximum", 
+             400,
+             min = 0, 
+             max = 10000)
+```
+```{r, echo = FALSE}
+renderPlot({
+ggplot(df[(df$price >= input$distribution_min) & (df$price <= input$distribution_max), c("price","large_host")], aes(x=price, color=large_host)) +
+  geom_density(fill="white", alpha=0.5, position="identity")+
+  ggtitle("The pricing of large host (>5 housing) vs small host")+
+  theme(legend.title = element_blank())
+})
+```
+
+Generally the large hosts' pricing distribution is same as the small host.
+
+
+
+
+
