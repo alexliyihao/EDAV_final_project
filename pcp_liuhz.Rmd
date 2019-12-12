@@ -1,0 +1,225 @@
+---
+title: "Final_Project_data_read"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(parcoords)
+library(dplyr)
+library(rvest)
+library(plotly)
+```
+
+```{r}
+'%!in%' <- function(x,y)!('%in%'(x,y))
+```
+
+
+
+```{r}
+cleaned_nyc_data = na.omit(read_csv('cleaned_nyc_data.csv'))
+```
+
+
+```{r}
+price_out <- boxplot(cleaned_nyc_data$price, plot=FALSE)$out
+sd_out <- boxplot(cleaned_nyc_data$security_deposit, plot=FALSE)$out
+cf_out <- boxplot(cleaned_nyc_data$cleaning_fee, plot=FALSE)$out
+ac_out <- boxplot(cleaned_nyc_data$accommodates, plot=FALSE)$out
+```
+
+
+```{r}
+nyc_nooutlier <- cleaned_nyc_data %>%
+  filter(price %!in% price_out & security_deposit %!in% sd_out & cleaning_fee %!in% cf_out & accommodates %!in% ac_out)
+```
+
+
+```{r}
+nyc_outlier <- cleaned_nyc_data %>%
+  filter(price %in% price_out)
+```
+
+
+```{r}
+nyc_nooutlier %>%
+  dplyr::select(price, review_scores_rating, availability_30,  security_deposit, cleaning_fee, accommodates, availability_365) %>%
+  arrange(price) %>% 
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T, 
+    withD3 = T,
+    alpha = 0.01,
+    bundleDimension = "accommodates",
+    bundlingStrength = 0.5,
+    smoothness = 0.1
+    ) 
+```
+
+
+```{r}
+nyc_nooutlier %>%
+  dplyr::select(price, security_deposit, cleaning_fee, accommodates, availability_365, review_scores_rating) %>%
+  arrange(price) %>% 
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T, 
+    color = list(
+      colorBy = "price",
+      colorScale = "scaleSequential",
+      colorInterpolator = "interpolateViridis"
+    ),
+    withD3 = T,
+    alpha = 0.01,
+
+    ) 
+```
+
+```{r}
+nyc_nooutlier %>%
+  dplyr::select(neighbourhood_group_cleansed, price, security_deposit, cleaning_fee, accommodates, availability_365, review_scores_rating) %>%
+  arrange(neighbourhood_group_cleansed) %>% 
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T, 
+    color = list(
+      colorBy = "neighbourhood_group_cleansed",
+      colorScale = "scaleOrdinal",
+      colorScheme = "schemeCategory10"
+    ),
+    withD3 = T,
+    alpha = 0.009,
+    ) 
+```
+
+```{r}
+property_frequence <- data.frame(table(nyc_nooutlier$property_type))
+property100 <- property_frequence[property_frequence$Freq > 100, ]
+```
+
+
+
+```{r}
+nyc_nooutlier %>%
+  dplyr::select(property_type, price, security_deposit, cleaning_fee, accommodates, availability_365, review_scores_rating) %>%
+  arrange(property_type) %>% 
+  filter(property_type %in% property100$Var1) %>%
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T, 
+    color = list(
+      colorBy = "property_type",
+      colorScale = "scaleOrdinal",
+      colorScheme = "schemeCategory10"
+    ),
+    withD3 = T,
+    alpha = 0.01
+    ) 
+```
+
+
+```{r}
+nyc_nooutlier %>%
+  dplyr::select(room_type, price, security_deposit, cleaning_fee, accommodates, availability_365, review_scores_rating) %>%
+  arrange(room_type) %>% 
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T, 
+    color = list(
+      colorBy = "room_type",
+      colorScale = "scaleOrdinal",
+      colorScheme = "schemeCategory10"
+    ),
+    withD3 = T,
+    alpha = 0.01
+    ) 
+```
+
+
+```{r}
+manhattan <- nyc_nooutlier %>%
+  filter(neighbourhood_group_cleansed == "Manhattan") 
+```
+
+```{r}
+m_neighbor_freq <- data.frame(table(manhattan$neighbourhood_cleansed))
+m_neighbor_mean<- m_neighbor_freq[m_neighbor_freq$Freq > mean(m_neighbor_freq$Freq), ]
+```
+
+
+```{r}
+manhattan %>%
+  dplyr::select(neighbourhood_cleansed, price, security_deposit, cleaning_fee, accommodates, availability_365, review_scores_rating) %>%
+  arrange(neighbourhood_cleansed) %>% 
+  filter(neighbourhood_cleansed %in% m_neighbor_mean$Var1) %>%
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes",
+    reorderable = T,
+    queue = T, 
+    color = list(
+      colorBy = "neighbourhood_cleansed",
+      colorScale = "scaleOrdinal",
+      colorScheme = "schemeCategory10"
+    ),
+    withD3 = T,
+    alpha = 0.025
+    ) 
+
+```
+
+```{r}
+brooklyn <- nyc_nooutlier %>%
+  filter(neighbourhood_group_cleansed == "Brooklyn") 
+b_neighbor_freq <- data.frame(table(brooklyn$neighbourhood_cleansed))
+b_neighbor_500<- b_neighbor_freq[b_neighbor_freq$Freq > 500, ]
+```
+
+
+
+
+```{r}
+brooklyn %>%
+  dplyr::select(neighbourhood_cleansed, price, security_deposit, cleaning_fee, accommodates, availability_365, review_scores_rating) %>%
+  arrange(neighbourhood_cleansed) %>% 
+  filter(neighbourhood_cleansed %in% b_neighbor_500$Var1) %>%
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T, 
+    color = list(
+      colorBy = "neighbourhood_cleansed",
+      colorScale = "scaleOrdinal",
+      colorScheme = "schemeCategory10"
+    ),
+    withD3 = T,
+    alpha = 0.01
+    ) 
+```
+
+
+
+
+
+
+
+
+
+
+
