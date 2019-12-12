@@ -29,7 +29,7 @@ Read geojson map and dataset
 nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
 nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
 df = read_csv('cleaned_nyc_data.csv')
-df$host_url = factor(df$host_url)
+df$host_id = factor(df$host_id)
 ggplot(data=nyc_districts_map, aes(x=long, y=lat)) +      
   geom_map(map=nyc_districts_map,
                         aes(map_id=id),
@@ -95,10 +95,10 @@ numericInput("large_host_range_min",
 ```{r, echo = FALSE, Warning = FALSE}
 renderPlot({
   ggplot(data = df[(df$calculated_host_listings_count >= input$large_host_range_min), 
-                   c("host_url","longitude","latitude")],
+                   c("host_id","longitude","latitude")],
          mapping = aes(x=longitude, 
                        y=latitude,
-                       color=host_url))+
+                       color=host_id))+
     geom_point (size=0.1) +
     geom_map(data=nyc_districts_map, 
              map=nyc_districts_map,
@@ -146,8 +146,8 @@ ggplot(df[(df$price >= input$distribution_min) & (df$price <= input$distribution
 })
 ```
 
-Generally the large hosts' pricing distribution is same as the small host.
-
+Generally the large hosts' pricing distribution is same as the small host. (Min = 0, Max = 800)  
+Large host provides relativly more extremely cheap (0-50), and relatively expensive(200-400) housing when compared with the small hosts.  
 
 
 
