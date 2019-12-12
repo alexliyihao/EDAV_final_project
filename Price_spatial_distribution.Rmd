@@ -1,0 +1,103 @@
+---
+title: "Price Spatial distribution"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(rgeos)
+library(geojsonio)
+library(viridis)
+library(dplyr)
+```
+
+Download the geojson map of NYC
+```{r}
+URL <- "http://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/nycd/FeatureServer/0/query?where=1=1&outFields=*&outSR=4326&f=geojson"
+fil <- "nyc_community_districts.geojson"
+
+if (!file.exists(fil)) download.file(URL, fil)
+```
+
+Read geojson map and dataset
+```{r}
+nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
+nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
+df = read_csv('cleaned_nyc_data.csv')
+ggplot(data=nyc_districts_map, aes(x=long, y=lat)) +      
+  geom_map(map=nyc_districts_map,
+                        aes(map_id=id),
+                        color="black", 
+                        size=0.15, 
+                        fill=NA) + 
+  coord_map() +
+  ggthemes::theme_map()
+```
+
+###Price distribution
+
+On the price side, for general intuition, check the density
+
+```{r}
+ggplot(df, aes(x = price))+
+  geom_density()+
+  ggtitle("The price distribution")+
+  labs(y = "Density", x = "Price")
+```
+
+Which gives a extremely right-skewed data, in order to have a practical scale:
+check the quantile.
+
+```{r}
+Q = unname(df$price %>% quantile())
+upper_hinge = Q[4]+(Q[4]-Q[2])*1.5
+df_normal = df[df$price < upper_hinge,]
+print(upper_hinge)
+```
+
+a upper_hinge of 334 looks relatively small with respect to the density curve. Let's check 
+
+```{r}
+ggplot(df[df$price > upper_hinge,],aes(x=price))+
+  geom_density()+
+  ggtitle("price distribution above the upper whisker")
+```
+
+```{r}
+ggplot(df[df$price >= upper_hinge & df$price <= 2500,],aes(x=price))+
+  geom_density()+
+  ggtitle("price distribution (zoom in upper whisker to 2500)")
+```
+
+```{r}
+quantile(df$price,0.99)
+```
+
+For a safe and relatively small scale, let's split the distribution into following tags: lower than upper hinge 334, 334-800(99% percentile) and greater than 800(very expensive, can be considered as somewhat the outlier)
+
+```{r}
+df$price_label <- ifelse(df$price >= 0 & df$price <= 334, 'low',
+                          ifelse(df$price >334 & df$price <=800,'medium',"high"))
+df$price_label <- factor(df$price_label, levels = c("low", "medium", "high"))
+```
+
+Plot the spatial distribution of these housing, differ by the price category. Consider the extreme right-skew trend, in order to convey as much as possible information, use a color gradient on log(price) rather than original price.
+
+```{r, fig.height=18}
+ggplot(data = df,aes(x=longitude,y=latitude,color = log(price)))+
+   geom_point(size=0.01)+
+   scale_color_viridis()+
+   geom_map(data=nyc_districts_map, 
+            map=nyc_districts_map,
+            aes(x=long, y=lat, map_id=id),
+            color="black",
+            size=0.15, 
+            fill=NA) + 
+    ggthemes::theme_map()+
+    facet_wrap(.~price_label, labeller = label_value, nrow = 3, ncol = 1,scale = "free")+
+    ggtitle("Spatial distribution of Airbnb Price, facet on the price level")
+```
