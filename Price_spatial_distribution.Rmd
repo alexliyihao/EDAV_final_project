@@ -1,5 +1,6 @@
 ---
 title: "Price Spatial distribution"
+runtime: shiny
 output: html_document
 ---
 
@@ -28,14 +29,6 @@ Read geojson map and dataset
 nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
 nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
 df = read_csv('cleaned_nyc_data.csv')
-ggplot(data=nyc_districts_map, aes(x=long, y=lat)) +      
-  geom_map(map=nyc_districts_map,
-                        aes(map_id=id),
-                        color="black", 
-                        size=0.15, 
-                        fill=NA) + 
-  coord_map() +
-  ggthemes::theme_map()
 ```
 
 ###Price distribution
@@ -77,18 +70,19 @@ ggplot(df[df$price >= upper_hinge & df$price <= 2500,],aes(x=price))+
 quantile(df$price,0.99)
 ```
 
-For a safe and relatively small scale, let's split the distribution into following tags: lower than upper hinge 334, 334-800(99% percentile) and greater than 800(very expensive, can be considered as somewhat the outlier)
+For a safe and relatively small scale, let's split the distribution into following tags: lower than upper hinge 334, 334-800(99% percentile) and greater than 800 (very expensive, can be considered as somewhat the outlier)
 
-```{r}
-df$price_label <- ifelse(df$price >= 0 & df$price <= 334, 'low',
-                          ifelse(df$price >334 & df$price <=800,'medium',"high"))
-df$price_label <- factor(df$price_label, levels = c("low", "medium", "high"))
+Plot the spatial distribution of housing, try different values, notice 1.the price over 800 may not create large difference. 2. Too large price interval, especially the larger value side will ruin the color scale.
+```{r, echo = FALSE}
+numericInput("price_distribution_range_min", "Minimum Price", 0,
+                 min = 0, max = 10000)
+numericInput("price_distribution_range_max", "Maximum Price", 300,
+                 min = 0, max = 10000)
 ```
-
-Plot the spatial distribution of these housing, differ by the price category. Consider the extreme right-skew trend, in order to convey as much as possible information, use a color gradient on log(price) rather than original price.
-
-```{r, fig.height=18}
-ggplot(data = df,aes(x=longitude,y=latitude,color = log(price)))+
+```{r echo = FALSE, warning=FALSE}
+renderPlot({
+ggplot(data = df[(df$price >= input$price_distribution_range_min) & (df$price <= input$price_distribution_range_max),c("longitude","latitude","price")],
+       aes(x=longitude,y=latitude,color = price))+
    geom_point(size=0.01)+
    scale_color_viridis()+
    geom_map(data=nyc_districts_map, 
@@ -98,6 +92,11 @@ ggplot(data = df,aes(x=longitude,y=latitude,color = log(price)))+
             size=0.15, 
             fill=NA) + 
     ggthemes::theme_map()+
-    facet_wrap(.~price_label, labeller = label_value, nrow = 3, ncol = 1,scale = "free")+
-    ggtitle("Spatial distribution of Airbnb Price, facet on the price level")
+    coord_map() +
+    ggtitle(paste("Spatial distribution of Airbnb Price, price level $", as.character(input$price_distribution_range_min), " - $", as.character(input$price_distribution_range_max), sep = ""));
+})
 ```
+
+Some conclusion after multiple trys:  
+Manhattan and West Brooklyn have most of the expensive housing, no matter what scale is selected. i.e. The distribution of price in these places are more skewed to cheaper side.  
+Bronx, Queens generally provide cheap housing (You can easily clarify it by setting minimum price > 200, which will filter out almost every housing in Bronx and Queens)
