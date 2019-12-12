@@ -1,0 +1,69 @@
+---
+title: "Final_Project_data_read"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(parcoords)
+library(dplyr)
+```
+
+
+```{r}
+cleaned_nyc_data = read_csv('cleaned_nyc_data.csv')
+```
+
+
+## Parallel coordinate plot by boroughs in New York
+
+```{r}
+# Omit NA to draw parallel coordinate plot for all continuous variables
+nyc_na_omit <- na.omit(cleaned_nyc_data)
+'%!in%' <- function(x,y)!('%in%'(x,y))
+# Omit the outliers for price, security deposit, cleaning fee and accommodates
+price_out <- boxplot(nyc_na_omit$price, plot=FALSE)$out
+sd_out <- boxplot(nyc_na_omit$security_deposit, plot=FALSE)$out
+cf_out <- boxplot(nyc_na_omit$cleaning_fee, plot=FALSE)$out
+ac_out <- boxplot(nyc_na_omit$accommodates, plot=FALSE)$out
+nyc_nooutlier <- nyc_na_omit %>%
+  filter(price %!in% price_out & security_deposit %!in% sd_out & cleaning_fee %!in% cf_out & accommodates %!in% ac_out)
+# Parallel coordinate plot by parcoords colored by boroughs
+nyc_nooutlier %>%
+  dplyr::select(neighbourhood_group_cleansed, price, review_scores_rating, security_deposit, cleaning_fee, accommodates, availability_365, room_type) %>%
+  arrange(neighbourhood_group_cleansed) %>% 
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T,
+    # bundle by neighbourhood
+    bundleDimension = "neighbourhood_group_cleansed",
+    bundlingStrength = 0.3,
+    smoothness = 0.1,
+    color = list(
+      colorBy = "neighbourhood_group_cleansed",
+      colorScale = "scaleOrdinal",
+      colorScheme = "schemeSet1"
+    ),
+    withD3 = T,
+    alpha = 0.015
+    ) 
+```
+
+We omitted the outliers of price, security deposit, cleaning fee, and accommodates. Most of the review scores are above 80, but we did not omit the lower score because we still want to include the low scores. Cluster by boroughs, we can see that the price range of Bronx and Queens are similar (approximate from 25 to 200). Manhattan has the largest price range from 50 up to 300, and on the other hand, Staten Island has the smallest price range from 50 up to 100, and this borough contains the least amount of Airbnbs. 
+
+Although most of the review scores are in the range of (80, 100), Bronx contains the review scores most above 90, and these rooms have a price of around 50 to 100. If we select only the private room in the room type, we can see that in the Bronx, most private rooms have the price of around 50 with a score above 90. A lot of these private rooms available above 300 days in a year. The Bronx has a relatively low cleaning fee for private rooms (below 50) than other boroughs have the cleaning fee below 100. Similarly, the security deposit for private rooms is lower in the Bronx. Moreover, the review scores of the entire home or apartment in the Bronx are approximately above 95. The Bronx only contains a few hotel rooms and shared rooms. 
+
+We have some similar cases in Queens. Private rooms with a price around 50 have a low security deposit and cleaning fee and a high above 90 review scores. In addition, the entire home or apartment has a higher above 90 review scores and with a price higher than both Queen's private room and Bronx's entire home and apartment. Also, Queens only contains a few hotel rooms and shared rooms. In all, the Bronx and Queens have several similarities, and the reason might be the residential environments, including room type, in two boroughs are similar. 
+
+Things are different in the other three boroughs. The price range of Brooklyn and Manhattan are similar (50 to 300). However, the private rooms in Manhattan are more expensive (50 to 150) than in Brooklyn (50 to 100). Also, the price of the entire home or apartment in Manhattan is a little higher than in Brooklyn. Most of hotel rooms are from Manhattan and Brooklyn. Staten Island has the least amount of Airbnbs, and the price is around 100. 
+
+Ignoring the cluster by boroughs, we can see that many entire homes or apartments are available more than 300 days in a year, but many private rooms are available less than 100 days in a year. Private rooms contain fewer accommodates, but entire homes or apartments contain more accommodates. Most of hotel rooms do not require any security deposit and cleaning fee; many of them contain 2 accommodates. The shared room contains 2 or 1 accommodates. The price of the shared room is low, and mostly this type of room does not require security deposit and has a low cleaning fee. 
+
+
+
