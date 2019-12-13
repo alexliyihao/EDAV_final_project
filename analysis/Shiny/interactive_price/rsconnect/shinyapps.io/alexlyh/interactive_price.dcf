@@ -1,0 +1,12 @@
+name: interactive_price
+title: interactive_price
+username:
+account: alexlyh
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1595826
+bundleId: 2664107
+url: https://alexlyh.shinyapps.io/interactive_price/
+when: 1576209004.2363
+asMultiple: FALSE
+asStatic: FALSE

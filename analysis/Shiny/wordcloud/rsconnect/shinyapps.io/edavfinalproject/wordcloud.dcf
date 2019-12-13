@@ -1,0 +1,12 @@
+name: wordcloud
+title: wordcloud
+username:
+account: edavfinalproject
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1591999
+bundleId: 2660733
+url: https://edavfinalproject.shinyapps.io/wordcloud/
+when: 1576118104.29709
+asMultiple: FALSE
+asStatic: FALSE

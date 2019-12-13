@@ -1,0 +1,10 @@
+library(tidyverse)
+library(rgeos)
+library(geojsonio)
+library(viridis)
+library(dplyr)
+library(mapproj)
+nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
+nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
+df = read_csv('cleaned_nyc_data.csv')
+df = df[,c("longitude","latitude","host_id","calculated_host_listings_count")]
