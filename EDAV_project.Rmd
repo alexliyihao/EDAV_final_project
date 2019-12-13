@@ -1,0 +1,597 @@
+---
+author: Jianfeng Zhuang (JZ3172), Huazhang Liu (HL3338), Yihao Li (YL4326), Yufeng Ma (YM2764)
+title: "EDAV_project"
+output:
+  html_document:
+    cleaned_nyc_data_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+#packages we need 
+library(tidyverse)
+library(parcoords)
+library(dplyr)
+library(d3r)
+library(stats) 
+library(forecast)
+library(dynlm)
+library(lubridate) 
+require("PolynomF")
+library(sarima) 
+library(expsmooth)
+library(rgeos)
+library(geojsonio)
+library(viridis)
+library(extracat)
+```
+
+###I. Introduction
+Airbnb is now a prevalent choice for renting a house when people are traveling. New York is a  famous place to travel, attracting millions of tourists every year. In this EDAV project, we select Airbnb's data at New York City (NYC) and want to find some interesting patterns in Airbnb's house data. We are mainly interested in the following questions:
+
+1. What are the factors affecting the house price? What kind of variables are inter-correlated with each other? 
+
+2. What is the trend of house demand?
+
+3. What are people's opinions on Airbnb's house?
+
+###II. Data sources
+#### 1. source
+We used the data opened by airbnb at website http://insideairbnb.com/get-the-data.html
+For NYC, we used following data:
+
+1. listings.csv: Summary information and metrics for listings in New York City 
+
+2. listings.csv.gz:	Detailed listings data for New York City
+
+3. reviews.csv: Summary Review data and Listing ID 
+
+4. reviews.csv.gz	Detailed Review Data for listings in New York City
+#### 2. description
+In **listings.csv** file, there are 48377 records of room listings, and typical variable includes: 
+
+1) price: the price for the room per night.
+
+2) neighborhood_group: the room's location area, including Bronx, Brooklyn, Manhattan, Queens and Staten Island. 
+
+3) reviews_per_month: The number of reviews that a listing has received per month.
+
+Reviews.csv contains the comments to those Airbnb listings. It has 6 variables, which are listing ID, comment ID, date, reviewer’s ID, reviewer’s name and comments. The size of the dataset is about 400 MB, and there are only 19 missing values in this dataset. The languages used for comments also varies, including Japanese, Spanish, Chinese, etc. The dates of comments range from 2009 to 2019. 
+
+###III Data Transformation 
+####1. Non time-series data
+```{r}
+data = read.csv("listings_whole.csv")
+```
+
+Airbnb provide a gigantic dataset with a great number of variables  
+For each housing, it provides information from users' url to the amenity tag to the position(longitude and latitude), etc.
+
+#####1.1. Remove the data not related to our discussion, include:  
+1. The housing's information (column 1-19):   
+descriptions written by the host, which is considered subjective and does not provide a uniform measure on the house.  
+2. Hosts' information (col 21-39):   
+information about host him/herself:  
+3. Common Position (col 42:48):   
+Our data downloaded are from NYC database, thus the position description greater than Borough doesn't give any useful information.  
+  
+And Other column like this, the principle determining if a column should be removed are  
+1. **Not related** to our discussion  
+2. Give **common information**  
+3. There's a good enough statistic in this field  
+
+```{r}
+data_cleaned = data[,-base::c(1:19,21:39,42:48,51,60,62:63,68:77,82:86,88:98,100,101,103:105)]
+```
+
+#####1.2. Data cleaning:
+
+**amenities** (The list of amenity string tags) is not converted into a string. for it will be used with a specific API, whose performance is better with factor type.
+
+For all the money value with "$x,xxx.xx" factor format, change it into clean numerical form.
+```{r}
+data_cleaned$price = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$price))))
+data_cleaned$security_deposit = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$security_deposit))))
+data_cleaned$cleaning_fee = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$cleaning_fee))))
+data_cleaned$extra_people = as.numeric(gsub(",","",gsub("\\$", "", as.character(data_cleaned$extra_people))))
+```
+
+The original dataset is too big (in size it's not, but the strings works horrible with R), we write a lighter version out for further studying. All the following research in on this cleaner dataset.
+```{r}
+write.csv(data_cleaned,'cleaned_nyc_data.csv', row.names=FALSE)
+```
+
+We first divided reviews.csv by year. To prepare for the word cloud, we first do the text mining to the separated data and converted the resulting words into matrices, then save them as comments_20xx.RData. Since there are too many comments in 2018 and 2019, we decide to take only 100,000 samples in each year. 
+
+####2.Time series data
+For time series analysis, we created several variables. Based on review.csv, which contains users' reviews and dates on the room, we could create time-related variables. First, for every room, we regard the first date the room was reviewed as the first date this room 'joined' Airbnb. Then we could then count the number of rooms joined Airbnb as time changes. Second, we regard the number of rooms reviewed every month as the demand. And we can count this number for different boroughs, room types, etc.
+
+###IV Missing Values 
+
+For most of the information we need a factor format, we will use **read.csv** rather than **read_csv** here.
+As an id, **Host_id** should be a factor rather than numeric, but its factor format will be removed once we re-read the csv, we will re-add it manually everytime..
+
+```{r message=FALSE, warning=FALSE}
+cleaned_nyc_data = read.csv('cleaned_nyc_data.csv')
+cleaned_nyc_data$host_id = as.factor(cleaned_nyc_data$host_id)
+visna(cleaned_nyc_data)
+```
+
+Most of the rows are without any missing patterns.
+
+The missing value mainly appear on the following three field:
+The house's hardware: **bathrooms**, **bedrooms**,**beds**, rare
+Pricing: **security_deposit** and **cleaning_fee** very common
+Reviews: The **review_scores_rating** and **reviews_per_month**, common
+
+Common missing patterns:
+Missing all the review related (**review_scores_rating** and **reviews_per_month**): the housing may had no visitors before
+Missing **security_deposit** only: A lot of hosts actually don't give security depo.
+Missing all the pricing related (**security_deposit** and **cleaning_fee**): same idea.
+Missing all the review and pricing related: the intersection of the host mentioned above.
+Thus the missing pattern is relatively following the common sense, there's no too many missing patterns not following the common sense.
+
+###V Result 
+
+```{r}
+cleaned_nyc_data = read_csv('cleaned_nyc_data.csv')
+```
+
+####1. feature-wise approach: Parallel coordinate plot by boroughs in New York
+
+In this section, we want to concentrate on the relationships between different numeric variables in listing.csv. We examed that there are several outliers for the numeric variables. In order to check the patterns, we omitted the outliers of price, security deposit, cleaning fee, and accommodates. 
+
+```{r}
+# Omit NA to draw parallel coordinate plot for all continuous variables
+nyc_na_omit <- na.omit(cleaned_nyc_data)
+'%!in%' <- function(x,y)!('%in%'(x,y))
+# Omit the outliers for price, security deposit, cleaning fee and accommodates
+price_out <- boxplot(nyc_na_omit$price, plot=FALSE)$out
+sd_out <- boxplot(nyc_na_omit$security_deposit, plot=FALSE)$out
+cf_out <- boxplot(nyc_na_omit$cleaning_fee, plot=FALSE)$out
+ac_out <- boxplot(nyc_na_omit$accommodates, plot=FALSE)$out
+nyc_nooutlier <- nyc_na_omit %>%
+  filter(price %!in% price_out & security_deposit %!in% sd_out & cleaning_fee %!in% cf_out & accommodates %!in% ac_out)
+# Parallel coordinate plot by parcoords colored by boroughs
+nyc_nooutlier %>%
+  dplyr::select(neighbourhood_group_cleansed, price, review_scores_rating, security_deposit, cleaning_fee, accommodates, availability_365, room_type) %>%
+  arrange(neighbourhood_group_cleansed) %>% 
+  parcoords(
+    rownames = F,  
+    brushMode = "1D-axes-multi",
+    reorderable = T,
+    queue = T,
+    # bundle by neighbourhood
+    bundleDimension = "neighbourhood_group_cleansed",
+    bundlingStrength = 0.3,
+    smoothness = 0.1,
+    color = list(
+      colorBy = "neighbourhood_group_cleansed",
+      colorScale = "scaleOrdinal",
+      colorScheme = "schemeSet1"
+    ),
+    withD3 = T,
+    alpha = 0.015
+    ) 
+```
+
+Most of the review scores are above 80, but we did not omit the lower score because we still want to include the low scores. Cluster by boroughs, we can see that the price range of Bronx and Queens are similar (approximate from 25 to 200). Manhattan has the largest price range from 50 up to 300, and on the other hand, Staten Island has the smallest price range from 50 up to 100, and this borough contains the least amount of Airbnbs. 
+
+Although most of the review scores are in the range of (80, 100), Bronx contains the review scores most above 90, and these rooms have a price of around 50 to 100. If we select only the private room in the room type, we can see that in the Bronx, most private rooms have the price of around 50 with a score above 90. A lot of these private rooms available above 300 days in a year. The Bronx has a relatively low cleaning fee for private rooms (below 50) than other boroughs have the cleaning fee below 100. Similarly, the security deposit for private rooms is lower in the Bronx. Moreover, the review scores of the entire home or apartment in the Bronx are approximately above 95. The Bronx only contains a few hotel rooms and shared rooms. 
+
+We have some similar cases in Queens. Private rooms with a price around 50 have a low security deposit and cleaning fee and a high above 90 review scores. In addition, the entire home or apartment has a higher above 90 review scores and with a price higher than both Queen's private room and Bronx's entire home and apartment. Also, Queens only contains a few hotel rooms and shared rooms. In all, the Bronx and Queens have several similarities, and the reason might be the residential environments, including room type, in two boroughs are similar. 
+
+Things are different in the other three boroughs. The price range of Brooklyn and Manhattan are similar (50 to 300). However, the private rooms in Manhattan are more expensive (50 to 150) than in Brooklyn (50 to 100). Also, the price of the entire home or apartment in Manhattan is a little higher than in Brooklyn. Most of hotel rooms are from Manhattan and Brooklyn. Staten Island has the least amount of Airbnbs, and the price is around 100. 
+
+Ignoring the cluster by boroughs, we can see that many entire homes or apartments are available more than 300 days in a year, but many private rooms are available less than 100 days in a year. Private rooms contain fewer accommodates, but entire homes or apartments contain more accommodates. Most of hotel rooms do not require any security deposit and cleaning fee; many of them contain 2 accommodates. The shared room contains 2 or 1 accommodates. The price of the shared room is low, and mostly this type of room does not require security deposit and has a low cleaning fee. 
+
+####2. Spatial Approach: Choropleth Analysis
+
+Download the geojson map of NYC, read both the geojson map and dataset
+```{r}
+URL <- "http://services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/nycd/FeatureServer/0/query?where=1=1&outFields=*&outSR=4326&f=geojson"
+fil <- "nyc_community_districts.geojson"
+
+if (!file.exists(fil)) download.file(URL, fil)
+
+nyc_districts <- geojson_read("nyc_community_districts.geojson", what="sp")
+nyc_districts_map <- fortify(nyc_districts, region="BoroCD")
+cleaned_nyc_data = read_csv('cleaned_nyc_data.csv')
+```
+
+#####2.1 the Spatial analysis on price of NYC housing:
+
+On the price side, for general intuition, check the density
+
+```{r}
+ggplot(cleaned_nyc_data, aes(x = price))+
+  geom_density()+
+  ggtitle("The price distribution")+
+  labs(y = "Density", x = "Price")
+```
+
+Which gives a extremely right-skewed data, in order to have a practical scale:
+calculate the upper hinge.
+
+```{r}
+Q = unname(cleaned_nyc_data$price %>% quantile())
+upper_hinge = Q[4]+(Q[4]-Q[2])*1.5
+cleaned_nyc_data_normal = cleaned_nyc_data[cleaned_nyc_data$price < upper_hinge,]
+print(paste("upper_hinge =", as.character(upper_hinge), sep = " "))
+```
+
+
+a upper_hinge of 334 looks relatively small with respect to the density curve. Let's check 
+
+```{r}
+ggplot(cleaned_nyc_data[cleaned_nyc_data$price > upper_hinge,],aes(x=price))+
+  geom_density()+
+  ggtitle("price distribution above the upper whisker")
+```
+
+```{r}
+ggplot(cleaned_nyc_data[cleaned_nyc_data$price >= upper_hinge & cleaned_nyc_data$price <= 2500,],aes(x=price))+
+  geom_density()+
+  ggtitle("price distribution (zoom in upper whisker to 2500)")
+```
+
+Check the 99% percentile: 
+ 
+```{r}
+quantile(cleaned_nyc_data$price,0.99)
+```
+
+```{r}
+cleaned_nyc_data$price_label = ifelse(cleaned_nyc_data$price <= 334, "low_price",ifelse(cleaned_nyc_data$price <=800, "medium_price", "high_price"))
+cleaned_nyc_data$price_label = factor(cleaned_nyc_data$price_label,levels = c("low_price","medium_price","high_price"))
+```
+
+For a safe and relatively small scale, let's split the distribution into following tags: lower than upper hinge 334, 334-800(99% percentile) and greater than 800 (very expensive, can be considered as somewhat the outlier)
+
+Plot the spatial distribution of housing, try different values, notice 1.the price over 800 may not create large difference. 2. Too large price interval, especially the larger value side will ruin the color scale.
+
+```{r, fig.height=18}
+ggplot(data = cleaned_nyc_data[,c("longitude","latitude","price","price_label")],
+       aes(x=longitude,y=latitude,color = log(price)))+
+   geom_point(size=0.01)+
+   scale_color_viridis()+
+   geom_map(data=nyc_districts_map, 
+            map=nyc_districts_map,
+            aes(x=long, y=lat, map_id=id),
+            color="black",
+            size=0.15, 
+            fill=NA) + 
+    ggthemes::theme_map()+
+    coord_map() +
+    facet_wrap(vars(price_label),ncol = 1, nrow = 3);
+```
+
+Some conclusion after multiple trys:  
+Manhattan and West Brooklyn have most of the expensive housing, no matter what scale is selected. i.e. The distribution of price in these places are more skewed to cheaper side.  
+Bronx, Queens generally provide cheap housing (You can easily clarify it by setting minimum price > 200, which will filter out almost every housing in Bronx and Queens)
+
+#####2.2 the Spatial analysis on supply of NYC housing:
+
+2.2.1 Macro aspect (in aggregate supply)
+
+First, as all of the data analysis on NYC, let's divide the 
+```{r}
+ggplot(cleaned_nyc_data, aes(x = neighbourhood_group_cleansed))+
+  geom_bar()+
+  ggtitle("The Airbnb supply of Sept. 2019")+
+  labs(y = "Supply", x = "Borough")
+```
+
+For a spacial intuition. Plot the hexagon heatmap supply density on the NYC map:
+```{r}
+ggplot(cleaned_nyc_data, aes(x = longitude, y = latitude)) +
+  geom_hex(bins = 100)+
+  scale_fill_viridis()+
+  geom_map(data=nyc_districts_map, 
+            map=nyc_districts_map,
+            aes(x=long, y=lat, map_id=id),
+            color="black", 
+            size=0.15, 
+            fill=NA) + 
+  ggthemes::theme_map()+
+  ggtitle("Airbnb supply density in NYC")
+```
+
+
+The result follows both the histogram and common sense: Brooklyn and Manhattan provide the most dense supply.
+
+2.2.2 Micro aspect(in individual supply)
+
+With calculated_host_listings_count, which is the count of housing provided by this supplier. 
+
+```{r}
+ggplot(cleaned_nyc_data, aes(x = calculated_host_listings_count))+
+  geom_histogram(binwidth = 1)+
+  ggtitle("The Airbnb supply of Sept. 2019")+
+  labs(x = "Supply Amount per host")
+```
+
+To our surprising, the ratio of host who hosts more than 1 housing is not small at all. At least 30% of the host is offering 2 or more.
+```{r}
+print(paste("The 70 percentile of calculated_host_listings_count is: ", as.character(quantile(cleaned_nyc_data$calculated_host_listings_count,0.70)), sep = ""))
+```
+
+There's even some "mega-host" in NYC,
+```{r}
+cleaned_nyc_data$host_id = as.factor(cleaned_nyc_data$host_id)
+ggplot(data = cleaned_nyc_data[(cleaned_nyc_data$calculated_host_listings_count >=100), 
+              c("host_id","longitude","latitude")],
+         mapping = aes(x=longitude, 
+                       y=latitude,
+                       color=host_id))+
+    geom_point (size=0.1) +
+    geom_map(data=nyc_districts_map, 
+             map=nyc_districts_map,
+             aes(x=long, y=lat, map_id=id),
+             color="black", 
+             size=0.15, 
+             fill=NA) + 
+    coord_map() +
+    ggthemes::theme_map()+
+    ggtitle(paste("The Airbnb housing distribution from\nowner with more than 100 housing(s)" ,sep = " "))
+```
+
+####3. Chronological approach: Time series Analysis 
+We did the time series analysis on the number of new rooms at NYC and monthly demand. Following are our findings 
+#####3.1 Trend of Room Supply
+For the number of total rooms, in Manhattan and Brooklyn, the trend of that is quite similar, their increasing rate started to be really high after 2015. In contrast, in Queens, the room number started to increase at a relatively high rate after 2017, indicating that this area possibly has more and more demands in the future.
+```{r}
+listing_brief = read.delim("listings.csv",sep = ",")
+review_brief = read.delim("reviews.csv", sep = ',')
+```
+
+```{r}
+#need file first_date.csv, otherwise it might takes 1 hour to run! 
+if (any("first_date.csv" == list.files("."))){
+  first_date = read.csv("first_date.csv" )
+  first_date$date = as.Date(first_date$date)
+}else{
+  i = 1
+  id = listing_brief$id[i]
+  first_date = review_brief[which(id == review_brief$listing_id),][1,]
+  for (j in (i+1):nrow(listing_brief)){
+    id = listing_brief$id[j]
+    first_date =  rbind(first_date, review_brief[which(id == review_brief$listing_id),][1,])
+  }
+  #first_date = first_date[-1,]
+  
+  first_date = cbind(first_date, listing_brief[,-1])
+  first_date = first_date[order(first_date$date,na.last = TRUE),]
+  first_date$num_house = cumsum(first_date$a)
+  first_date = first_date[which(!is.na(first_date$date)), ]
+  first_date$date = as.Date(first_date$date)
+  write.csv(first_date, "first_date.csv")
+}
+
+ggplot(data = first_date, aes(x = date, y = num_house/1e06)) + 
+  geom_line(color = "#FC4E07", size = 1)+
+  scale_x_date(date_labels = "%Y") +
+  ggtitle(label = "Total Number of Rooms at NYC")+
+  ylab("number of house (in million)")
+```
+
+
+```{r}
+number_house_byarea = rep(NA, nrow = first_date)
+for (area in levels(first_date$neighbourhood_group)){
+  index = which(first_date$neighbourhood_group == area)
+  number_house_byarea[index] = cumsum(first_date[index, ]$a)
+}
+first_date$num_house_byarea = number_house_byarea
+
+ggplot(data = first_date, aes(x = date, y = num_house_byarea/1e06)) + 
+  geom_line(color = "#FC4E07", size = 1)+
+  scale_x_date(date_labels = "%Y") +
+  facet_grid(~neighbourhood_group) + 
+  xlab("Number of total rooms") +
+  ggtitle("Number of total rooms time series in different areas of NYC")+
+  ylab("number of house (in million)")
+
+```
+ 
+#####3.2 Trend of Room Demand
+3.2.1 Aggregate trend in NYC
+For room demands every month, we found that more and more people are living in Airbnb room when traveling to NYC. More interestingly, there is some seasonality in the demand of the house, and then we can use decomposition to detect those seasonal effects.
+
+```{r}
+#2. the demand: interested in the monthly demand 
+review_brief_month = review_brief
+review_brief_month$date = as.Date(paste0(substr(review_brief$date,1,8),"01"))
+review_brief_month = review_brief_month[order(review_brief_month$date,na.last = TRUE),]
+review_brief_month$a = 1
+
+date_bymonth = levels(as.factor(review_brief_month$date))
+demand_cleaned_nyc_data = as.Date(matrix(date_bymonth, nrow = length(date_bymonth), ncol = 1))
+
+date = date_bymonth[1]
+num_demands = rep(NA, length(date_bymonth))
+for (i in 1:length(date_bymonth)){
+  date = date_bymonth[i]
+  num_demands[i] = sum(review_brief_month$date == date)
+}
+demand_cleaned_nyc_data = data.frame(date = demand_cleaned_nyc_data, demand = matrix(num_demands, ncol = 1))
+
+ggplot(data = demand_cleaned_nyc_data, aes(x = date, y = demand)) + 
+  geom_line(color = "#FC4E07", size = 1)+
+  scale_x_date(date_labels = "%b/%Y", limits = base::c(min(demand_cleaned_nyc_data$date), max(demand_cleaned_nyc_data$date)))+
+  ggtitle('Demands by Month in NYC')
+```
+
+
+```{r}
+demand_ts = ts(data = demand_cleaned_nyc_data$demand, start = base::c(as.numeric(substr(demand_cleaned_nyc_data$date[1], 1,4)), as.numeric(substr(demand_cleaned_nyc_data$date[1], 6,7))), frequency = 12)
+
+fit <- decompose(demand_ts, type='multiplicative') # I use original data here!
+autoplot(fit) +
+  ggtitle("Decomposition of Multiplicative Time Series for Airbnb Demand in New York City")
+
+```
+
+3.2.2 Decomposed Trend in NYC
+First, the trend curve in the decomposition suggests that the demand for Airbnb kept increasing in those years. Moreover, there is a clear seasonality in the demand time series. In winter, especially in February, the demand for Airbnb is extremely low in NYC relative to other months. At this time, there might be fewer travelers to NYC. After March, the demand tends to increase more, and in August and September, the demand for Airbnb is the relatively highest in a year. The possible reason for that is in summer there are more tourists visiting NYC instead of winter. (NYC is extremely cold in winter! (Might compare this data with South cities))   
+
+```{r}
+filenames = base::c('SF/reviews.csv', 'LA/reviews.csv', 'NewOrleans/reviews.csv', 'Mexico/reviews.csv','Tokyo/reviews.csv')
+citynames = base::c('San_Francisco','Los_Angeles', 'New_Orleans', 'Mexico_City', 'Tokyo')
+plot_demands = function(filenames,citynames){
+  review_brief_month_Tokyo = read.delim('SF/reviews.csv', sep = ',')
+  review_brief_month_Tokyo$date = as.Date(paste0(substr(review_brief_month_Tokyo$date,1,8),"01"))
+  review_brief_month_Tokyo = review_brief_month_Tokyo[order(review_brief_month_Tokyo$date,na.last = TRUE),]
+  date_bymonth_ = levels(as.factor(review_brief_month_Tokyo$date))
+  
+  res = data.frame(date = as.Date(date_bymonth_))
+  
+  for (j in 1:length(filenames)){
+    #cat(j, '\n')
+    filename = filenames[j]
+    review_brief_Tokyo = read.delim(filename, sep = ',')
+    
+    review_brief_month_Tokyo = review_brief_Tokyo
+    review_brief_month_Tokyo$date = as.Date(paste0(substr(review_brief_month_Tokyo$date,1,8),"01"))
+    review_brief_month_Tokyo = review_brief_month_Tokyo[order(review_brief_month_Tokyo$date,na.last = TRUE),]
+    review_brief_month_Tokyo$a = 1
+    
+    date_bymonth = levels(as.factor(review_brief_month_Tokyo$date))
+    demand_cleaned_nyc_data_Tokyo = as.Date(matrix(date_bymonth, nrow = length(date_bymonth), ncol = 1))
+    
+    date = date_bymonth[1]
+    num_demands = rep(NA, length(date_bymonth))
+    for (i in 1:length(date_bymonth)){
+      date = date_bymonth[i]
+      num_demands[i] = sum(review_brief_month_Tokyo$date == date)
+    }
+    demand_cleaned_nyc_data_Tokyo = data.frame(date = demand_cleaned_nyc_data_Tokyo, demand = matrix(num_demands, ncol = 1))
+    
+    #ggplot(data = demand_cleaned_nyc_data_Tokyo, aes(x = date, y = demand)) + 
+    #  geom_line(color = "#FC4E07", size = 1)+
+    #  scale_x_date(date_labels = "%b/%Y", limits = base::c(min(demand_cleaned_nyc_data$date), max(demand_cleaned_nyc_data$date)))
+    
+    demand_ts = ts(data = demand_cleaned_nyc_data_Tokyo$demand, start = base::c(as.numeric(substr(demand_cleaned_nyc_data_Tokyo$date[1], 1,4)), as.numeric(substr(demand_cleaned_nyc_data_Tokyo$date[1], 6,7))), frequency = 12)
+    
+    fit <- decompose(demand_ts, type='multiplicative')
+    seasonal = as.matrix(fit$seasonal)
+    seasonal_large = matrix(NA, nrow = length(date_bymonth_), ncol = 1) 
+    seasonal_large[(length(date_bymonth_) - nrow(seasonal) + 1): length(date_bymonth_), 1] = seasonal
+    eval(parse(text = paste0('res$',citynames[j],'= seasonal_large')))
+    
+  }
+  res = res[which(res$date%in% seq(as.Date("2014-01-01"), as.Date("2014-12-01"), "month") ),]
+  res = gather(res, city, demand, -date)
+  ggplot(data = res, aes(x = date, y = demand)) +
+    geom_line(color = "#FC4E07", size = 0.7)+
+    scale_x_date(date_labels = "%b",  date_breaks = "3 month")+
+    facet_grid(cols = vars(city))+
+    ggtitle("Seasonal Factor for Decomposition of Multiplicative Time Series for Airbnb Demand")+
+    theme(strip.text.x = element_text(size = 12))+
+    ylab("Seasonal Factor")+
+    xlab("Month")
+}
+plot_demands(filenames, citynames)
+```
+
+1) The pattern that the demand is low in winter and high in summer is similar to NYC's for most of those cities, even for some southern cities, such as San Francisco and Los Angles! Those might indicate that people are more likely to travel in the summertime instead of wintertime. 
+
+2) However, for some southern cities, such as New Orleans and Mexico City, they are quite popular in the wintertime, and the demands in the summertime are relatively lower. 
+
+3) Also, the seasonal factor in Tokyo suggests that most people are going to Tokyo at May. The reason might be that people are going to visit sakura, which is a symbol for Japan and blooms in May.  
+
+#####3.3 Demand Across Different Borough and Room Type
+Then back to our data at NYC, and dive into the demands in more details. We check the demands at different areas and different room type. 
+```{r}
+#by neighborhood groups 
+demand_cleaned_nyc_data_byareas = as.Date(matrix(date_bymonth, nrow = length(date_bymonth), ncol = 1))
+demand_cleaned_nyc_data_byareas = data.frame(date = demand_cleaned_nyc_data_byareas)
+
+areas = levels(listing_brief$neighbourhood_group)
+
+j = 1
+for (j in 1:length(areas)){
+  area = areas[j]
+  index = listing_brief$id[which(listing_brief$neighbourhood_group == area)]
+  review_brief_month_area = review_brief_month[which(review_brief_month$listing_id%in%index), ]
+  date = date_bymonth[1]
+  num_demands = rep(NA, length(date_bymonth))
+  for (i in 1:length(date_bymonth)){
+    date = date_bymonth[i]
+    num_demands[i] = sum(review_brief_month_area$date == date)
+  }
+  demand_cleaned_nyc_data_byareas[,j+1] = num_demands
+
+}
+colnames(demand_cleaned_nyc_data_byareas) = base::c('date', areas)
+demand_cleaned_nyc_data_byareas = gather(demand_cleaned_nyc_data_byareas, area, demand, -date)
+
+ggplot(data = demand_cleaned_nyc_data_byareas, aes(x = date, y = demand, colour = area)) + 
+  geom_line(size = 1)+
+  scale_x_date(date_labels = "%b/%Y", limits = base::c(min(demand_cleaned_nyc_data_byareas$date), max(demand_cleaned_nyc_data_byareas$date)))+
+  ggtitle('Demands by Month in Different Areas of NYC ')
+```
+
+
+```{r}
+#by room type 
+demand_cleaned_nyc_data_byroomtype = as.Date(matrix(date_bymonth, nrow = length(date_bymonth), ncol = 1))
+demand_cleaned_nyc_data_byroomtype = data.frame(date = demand_cleaned_nyc_data_byroomtype)
+
+room_type = levels(listing_brief$room_type)
+
+j = 1
+for (j in 1:length(room_type)){
+  room = room_type[j]
+  index = listing_brief$id[which(listing_brief$room_type == room)]
+  review_brief_month_area = review_brief_month[which(review_brief_month$listing_id%in%index), ]
+  date = date_bymonth[1]
+  num_demands = rep(NA, length(date_bymonth))
+  for (i in 1:length(date_bymonth)){
+    date = date_bymonth[i]
+    num_demands[i] = sum(review_brief_month_area$date == date)
+  }
+  demand_cleaned_nyc_data_byroomtype[,j+1] = num_demands
+
+}
+colnames(demand_cleaned_nyc_data_byroomtype) = base::c('date', room_type)
+demand_cleaned_nyc_data_byroomtype = gather(demand_cleaned_nyc_data_byroomtype, room_type, demand, -date)
+
+ggplot(data = demand_cleaned_nyc_data_byroomtype, aes(x = date, y = demand, colour = room_type)) + 
+  geom_line(size = 1)+
+  scale_x_date(date_labels = "%b/%Y", limits = base::c(min(demand_cleaned_nyc_data_byroomtype$date), max(demand_cleaned_nyc_data_byroomtype$date)))+
+  ggtitle('Demands by Month for Different Room Type in NYC ')
+  
+```
+
+The plot shows that there is a strong co-movement for areas Brooklyn, Manhattan, and Queens. Also, for the room type, the entire room and private room moves in a similar way, and the other two kinds of rooms' demand are not too many. 
+
+###VI Interactive
+
+####Word Cloud
+(a). Amenities
+https://edavfinalproject.shinyapps.io/wordcloud_amenities/
+We used word cloud in Shiny Apps to display the most listed amenities. When we set the minimum frequency to 10,185 and maximum number of words to 61, we can see that the 6 most mentioned words are: detector, kitchen, conditioning, heating, essentials and air. We guess that “air” and “conditioning” should be the combined to “air conditioning”, but they are separated because we divided those word groups by whitespaces in text mining process. Also, we can see that “monoxide” and “carbon” are also shown for a lot of times, this is because of the law enforcement in New York that households need to have at least one carbon-monoxide detector in each room. “Extinguisher” also appears many times, which also means that the hosts of Airbnb really value the safety of their guests’ life and wealth. One interesting feature that we found is that Airbnb in New York seems to serve for business people, because words like “workspace” and “laptop” appear for a significant amount of times, which might not be commonly seen in other cities. The rest of words are basically the living essentials that can be seen in most of Airbnb listings. 
+
+
+(b). Reviews
+https://edavfinalproject.shinyapps.io/wordcloud_reviews/
+Since the amount of comments exploded in recently years, the highlighted words also appear in different frequencies across years. 
+In 2019, the two most commonly seen words are “great” and “place”, which are probably the simplest praise of a place.  “Recommend” also has a relatively high frequency, so we know that people who would like to comment on Airbnb mostly like to recommend this place for the potential guests. However, since the amount of comments increased significantly in the past years, we also suspect whether those comments are actually made by “real people” rather than the hosts themselves. Words like “walking”, “restaurants”, “park”, “neighborhood”, “safe” are all about the nearby communities, which means that people not only care about the environment inside the rooms, but also the nearby area. “quiet” is also mentioned for many times, and as we all know that this is probably the most precious thing in NYC. What surprised us is the word “kitchen” is also mentioned for many times, since we all think that people come to NYC can easily get access to a lot of excellent restaurants. 
+2018 basically shows the same words as in 2019. However, in 2017, we noticed that the word “shops” is mentioned a lot. We are curious about why would people stop mentioning this word in 2018 and 2019. Did people’s purchasing power decreases in these years?
+
+###VII Conclusion
+####: Limitations and Future directions 
+
+1) The number of features and data in the data provided by Airbnb is limited. We could use include more variables such as the crime rate at specific areas. We might also include other data such as hotel prices.
+
+2) We can do further analysis on cases with extreme price. 
+
+3) Based on the occupation rate of a house, we could provide some recommendations for a host, such as lowering the price. Also, we can give some suggestions on which house to rent based on their preferences. 
+
+4) For the spatial analysis, the key point is we didn’t find a geojson data with borough name—which stops me plotting a choropleth with the crime rate and join them into my analysis. After consideration we picked the most objective data only in data from Airbnb.
+
+5) For the word cloud, we have discussed about which method we should use for text mining, since we worried about the words like “TV” and “Cable TV” are repetitive, while the word detector might point to different stuffs. Also, since the number of amounts varies across years, it is hard to use a uni-size slide bar. It could be better if we are able to adjust the slide bar according to the maximum frequency of the words. 
