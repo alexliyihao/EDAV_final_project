@@ -61,6 +61,7 @@ nyc_nooutlier %>%
     bundlingStrength = 0.5,
     smoothness = 0.1
     ) 
+
 ```
 
 
@@ -79,8 +80,7 @@ nyc_nooutlier %>%
       colorInterpolator = "interpolateViridis"
     ),
     withD3 = T,
-    alpha = 0.01,
-
+    alpha = 0.01
     ) 
 ```
 
@@ -99,7 +99,7 @@ nyc_nooutlier %>%
       colorScheme = "schemeCategory10"
     ),
     withD3 = T,
-    alpha = 0.009,
+    alpha = 0.009
     ) 
 ```
 
