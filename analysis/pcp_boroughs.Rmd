@@ -4,7 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
 ```
 
 ```{r}
@@ -20,6 +20,31 @@ cleaned_nyc_data = read_csv('cleaned_nyc_data.csv')
 
 
 ## Parallel coordinate plot by boroughs in New York
+
+In this section, we want to concentrate on the relationships between different numeric variables in listing.csv. 
+
+First, we examed that there are several outliers for the numeric variables. 
+
+```{r}
+# Omit NA to draw parallel coordinate plot for all continuous variables
+nyc_na_omit <- na.omit(cleaned_nyc_data)
+# Exam the outlier using boxplot
+outlierExam <- function(df, var, name) {
+     var_name <- eval(substitute(var),eval(df))
+     par(mfrow=c(1, 2), oma=c(4,1,1,1))
+     boxplot(var_name, main="with outliers")
+     outlier <- boxplot.stats(var_name)$out
+     var_name <- ifelse(var_name %in% outlier, NA, var_name)
+     boxplot(var_name, main="without outliers")
+     title(paste("Outlier Analysis for", name), outer=TRUE)
+}
+outlierExam(nyc_na_omit, price, "price")
+outlierExam(nyc_na_omit, security_deposit, "security deposit")
+outlierExam(nyc_na_omit, cleaning_fee, "cleaning fee")
+outlierExam(nyc_na_omit, accommodates, "accommodates")
+```
+
+In these four variables, there are plenty of outliers. In order to check the patterns, we omitted these outliers. For review_scores_rating, most of the review scores are above 80, but we did not omit the lower score because we still want to include the low scores. We also include availability_365 and room_type as variables of the plot. We drew this parallel coordinate plot clustered by boroughs. 
 
 ```{r}
 # Omit NA to draw parallel coordinate plot for all continuous variables
@@ -55,7 +80,7 @@ nyc_nooutlier %>%
     ) 
 ```
 
-We omitted the outliers of price, security deposit, cleaning fee, and accommodates. Most of the review scores are above 80, but we did not omit the lower score because we still want to include the low scores. Cluster by boroughs, we can see that the price range of Bronx and Queens are similar (approximate from 25 to 200). Manhattan has the largest price range from 50 up to 300, and on the other hand, Staten Island has the smallest price range from 50 up to 100, and this borough contains the least amount of Airbnbs. 
+Cluster by boroughs, we can see that the price range of Bronx and Queens are similar (approximate from 25 to 200). Manhattan has the largest price range from 50 up to 300, and on the other hand, Staten Island has the smallest price range from 50 up to 100, and this borough contains the least amount of Airbnbs. 
 
 Although most of the review scores are in the range of (80, 100), Bronx contains the review scores most above 90, and these rooms have a price of around 50 to 100. If we select only the private room in the room type, we can see that in the Bronx, most private rooms have the price of around 50 with a score above 90. A lot of these private rooms available above 300 days in a year. The Bronx has a relatively low cleaning fee for private rooms (below 50) than other boroughs have the cleaning fee below 100. Similarly, the security deposit for private rooms is lower in the Bronx. Moreover, the review scores of the entire home or apartment in the Bronx are approximately above 95. The Bronx only contains a few hotel rooms and shared rooms. 
 
